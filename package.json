@@ -1,0 +1,39 @@
+{
+  "name": "subranks-devvit",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "devvit playtest",
+    "dev:build": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "login": "devvit login",
+    "upload": "devvit upload",
+    "release": "devvit publish",
+    "release:public": "devvit publish --public"
+  },
+  "dependencies": {
+    "@devvit/web": "0.13.8",
+    "express": "5.1.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@devvit/start": "0.13.8",
+    "@types/express": "5.0.3",
+    "@types/node": "24.3.0",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "5.0.4",
+    "devvit": "0.13.8",
+    "typescript": "5.9.2",
+    "vite": "7.3.5",
+    "vitest": "4.1.0"
+  },
+  "engines": {
+    "node": ">=22.2.0"
+  }
+}

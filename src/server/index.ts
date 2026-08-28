@@ -32,19 +32,17 @@ import {
   nextLevelForXp,
   normalizeDaily,
   progressForXp,
-  removeCommentReward,
   textColorForBackground,
   validateConfig,
 } from './domain.js';
 import {
-  deleteCommentReward,
   deleteUserData,
-  getCommentReward,
   getConfig,
   getLeaderboard,
   getUserState,
   mutateUserState,
   mutateUserStateForComment,
+  rollbackCommentReward,
   saveConfig,
 } from './store.js';
 
@@ -341,17 +339,13 @@ app.post('/internal/triggers/comment-create', async (req, res) => {
 app.post('/internal/triggers/comment-delete', async (req, res) => {
   const input = req.body as OnCommentDeleteRequest;
   try {
-    const reward = await getCommentReward(input.commentId);
-    if (!reward) {
+    const state = await rollbackCommentReward(input.commentId, new Date().toISOString());
+    if (!state) {
       res.json({} satisfies TriggerResponse);
       return;
     }
     const config = await getConfig();
-    const result = await mutateUserState(reward.userId, reward.username, config.timezone, (state) =>
-      removeCommentReward(state, input.commentId, reward.awardedXp, new Date().toISOString())
-    );
-    await deleteCommentReward(input.commentId);
-    await syncFlair(config, result.state);
+    await syncFlair(config, state);
     res.json({} satisfies TriggerResponse);
   } catch (error) {
     console.error('Comment deletion rollback failed:', error);

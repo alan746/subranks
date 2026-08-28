@@ -44,7 +44,7 @@ import {
   getLeaderboard,
   getUserState,
   mutateUserState,
-  saveCommentReward,
+  mutateUserStateForComment,
   saveConfig,
 } from './store.js';
 
@@ -319,11 +319,15 @@ app.post('/internal/triggers/comment-create', async (req, res) => {
       return;
     }
     const beforeLevel = levelForXp(config.levels, before.xp);
-    const result = await mutateUserState(author.id, author.name, config.timezone, (state) =>
-      applyComment(state, config, comment.id, dateKey(new Date(), config.timezone), new Date().toISOString())
+    const result = await mutateUserStateForComment(
+      author.id,
+      author.name,
+      config.timezone,
+      comment.id,
+      (state) =>
+        applyComment(state, config, comment.id, dateKey(new Date(), config.timezone), new Date().toISOString())
     );
     if (result.awardedXp > 0) {
-      await saveCommentReward(comment.id, author.id, author.name, result.awardedXp);
       const afterLevel = levelForXp(config.levels, result.state.xp);
       if (afterLevel.level !== beforeLevel.level) await syncFlair(config, result.state);
     }

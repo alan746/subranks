@@ -10,6 +10,10 @@ const COMMENT_REWARD_PREFIX = 'subranks:comment-reward:';
 const userKey = (userId: string) => `${USER_PREFIX}${userId}`;
 const commentRewardKey = (commentId: string) => `${COMMENT_REWARD_PREFIX}${commentId}`;
 
+export type CommentMutationResult = MutationResult & {
+  duplicate: boolean;
+};
+
 function parseJson<T>(value: string | undefined, fallback: T): T {
   if (!value) return fallback;
   try {
@@ -83,6 +87,66 @@ export async function mutateUserState(
   throw lastError instanceof Error ? lastError : new Error('Could not update player state.');
 }
 
+export async function mutateUserStateForComment(
+  userId: string,
+  username: string,
+  timezone: string,
+  commentId: string,
+  mutation: (state: UserState) => MutationResult
+): Promise<CommentMutationResult> {
+  const key = userKey(userId);
+  const rewardKey = commentRewardKey(commentId);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const transaction = await redis.watch(key, rewardKey);
+    try {
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const today = dateKey(now, timezone);
+      const [raw, existingReward] = await Promise.all([
+        redis.get(key),
+        redis.get(rewardKey),
+      ]);
+      const existing = raw
+        ? parseJson(raw, createUserState(userId, username, today, nowIso))
+        : createUserState(userId, username, today, nowIso);
+      const normalized = { ...existing, username };
+
+      if (existingReward) {
+        await transaction.unwatch();
+        return { state: normalized, awardedXp: 0, changed: false, duplicate: true };
+      }
+
+      const result = mutation(normalized);
+      if (!result.changed) {
+        await transaction.unwatch();
+        return { ...result, duplicate: false };
+      }
+
+      await transaction.multi();
+      await transaction.set(key, JSON.stringify(result.state));
+      await transaction.zAdd(LEADERBOARD_KEY, { member: userId, score: result.state.xp });
+      await transaction.set(
+        rewardKey,
+        JSON.stringify({ userId, username, awardedXp: result.awardedXp })
+      );
+      await transaction.expire(rewardKey, 90 * 24 * 60 * 60);
+      await transaction.exec();
+      return { ...result, duplicate: false };
+    } catch (error) {
+      lastError = error;
+      try {
+        await transaction.discard();
+      } catch {
+        // The transaction may already have been aborted by Redis.
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Could not reward comment.');
+}
+
 export async function getLeaderboard(config: AppConfig, limit = 10): Promise<LeaderboardEntry[]> {
   const members = await redis.zRange(LEADERBOARD_KEY, 0, Math.max(0, limit - 1), {
     by: 'rank',
@@ -97,17 +161,6 @@ export async function getLeaderboard(config: AppConfig, limit = 10): Promise<Lea
     const level = levelForXp(config.levels, state.xp);
     return [{ rank: index + 1, username: state.username, xp: state.xp, level: level.level, title: level.title }];
   });
-}
-
-export async function saveCommentReward(
-  commentId: string,
-  userId: string,
-  username: string,
-  awardedXp: number
-): Promise<void> {
-  const key = commentRewardKey(commentId);
-  await redis.set(key, JSON.stringify({ userId, username, awardedXp }), { nx: true });
-  await redis.expire(key, 90 * 24 * 60 * 60);
 }
 
 export async function getCommentReward(

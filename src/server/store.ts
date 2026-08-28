@@ -1,6 +1,13 @@
 import { redis } from '@devvit/web/server';
 import type { AppConfig, LeaderboardEntry, UserState } from '../shared/types.js';
-import { DEFAULT_CONFIG, createUserState, dateKey, levelForXp, type MutationResult } from './domain.js';
+import {
+  DEFAULT_CONFIG,
+  createUserState,
+  dateKey,
+  levelForXp,
+  removeCommentReward,
+  type MutationResult,
+} from './domain.js';
 
 const CONFIG_KEY = 'subranks:config';
 const LEADERBOARD_KEY = 'subranks:leaderboard';
@@ -170,8 +177,59 @@ export async function getCommentReward(
   return value ? parseJson(value, null) : null;
 }
 
-export async function deleteCommentReward(commentId: string): Promise<void> {
-  await redis.del(commentRewardKey(commentId));
+export async function rollbackCommentReward(
+  commentId: string,
+  nowIso: string
+): Promise<UserState | null> {
+  const rewardKey = commentRewardKey(commentId);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const initialReward = await getCommentReward(commentId);
+    if (!initialReward) return null;
+
+    const key = userKey(initialReward.userId);
+    const transaction = await redis.watch(key, rewardKey);
+    try {
+      const [rawState, rawReward] = await Promise.all([
+        redis.get(key),
+        redis.get(rewardKey),
+      ]);
+      const reward = rawReward
+        ? parseJson<typeof initialReward | null>(rawReward, null)
+        : null;
+
+      if (!reward) {
+        await transaction.unwatch();
+        return null;
+      }
+
+      const state = rawState ? parseJson<UserState | null>(rawState, null) : null;
+      await transaction.multi();
+
+      if (!state) {
+        await transaction.del(rewardKey);
+        await transaction.exec();
+        return null;
+      }
+
+      const result = removeCommentReward(state, commentId, reward.awardedXp, nowIso);
+      await transaction.set(key, JSON.stringify(result.state));
+      await transaction.zAdd(LEADERBOARD_KEY, { member: reward.userId, score: result.state.xp });
+      await transaction.del(rewardKey);
+      await transaction.exec();
+      return result.state;
+    } catch (error) {
+      lastError = error;
+      try {
+        await transaction.discard();
+      } catch {
+        // The transaction may already have been aborted by Redis.
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Could not roll back comment reward.');
 }
 
 export async function deleteUserData(userId: string): Promise<void> {

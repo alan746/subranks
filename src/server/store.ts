@@ -52,6 +52,44 @@ export async function getUserState(userId: string): Promise<UserState | null> {
   return value ? parseJson<UserState | null>(value, null) : null;
 }
 
+export async function recordSyncedFlairText(userId: string, text: string): Promise<boolean> {
+  const key = userKey(userId);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const transaction = await redis.watch(key);
+    try {
+      const raw = await redis.get(key);
+      const state = raw ? parseJson<UserState | null>(raw, null) : null;
+      if (!state) {
+        await transaction.unwatch();
+        return false;
+      }
+      if (state.syncedFlairText === text) {
+        await transaction.unwatch();
+        return true;
+      }
+
+      await transaction.multi();
+      await transaction.set(
+        key,
+        JSON.stringify({ ...state, syncedFlairText: text, updatedAt: new Date().toISOString() })
+      );
+      await transaction.exec();
+      return true;
+    } catch (error) {
+      lastError = error;
+      try {
+        await transaction.discard();
+      } catch {
+        // The transaction may already have been aborted by Redis.
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Could not record synchronized flair.');
+}
+
 async function mutateStoredUserState(
   userId: string,
   username: string,

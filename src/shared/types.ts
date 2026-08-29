@@ -31,6 +31,7 @@ export type UserState = {
   longestStreak: number;
   lastCheckInDate: string | null;
   daily: DailyActivity;
+  syncedFlairText?: string;
   createdAt: string;
   updatedAt: string;
 };

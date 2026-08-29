@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig, UserState } from '../shared/types.js';
-import { applyComment, createUserState, DEFAULT_CONFIG } from './domain.js';
+import { applyCheckIn, applyComment, createUserState, DEFAULT_CONFIG } from './domain.js';
 
 type QueuedOperation = () => void;
 
@@ -74,7 +74,11 @@ const redisMock = vi.hoisted(() => {
 
 vi.mock('@devvit/web/server', () => ({ redis: redisMock }));
 
-import { mutateUserStateForComment } from './store.js';
+import {
+  createOrMutateUserState,
+  mutateExistingUserState,
+  mutateUserStateForComment,
+} from './store.js';
 
 const USER_KEY = 'subranks:user:t2_user';
 
@@ -95,21 +99,21 @@ function storedUser(): UserState {
   return JSON.parse(redisMock.values.get(USER_KEY) ?? '{}') as UserState;
 }
 
-describe('persistent comment reward deduplication', () => {
+describe('user state mutations and persistent comment reward deduplication', () => {
   beforeEach(() => {
     redisMock.reset();
     seedUser();
   });
 
   it('does not reward a delayed duplicate after the daily activity resets', async () => {
-    const first = await mutateUserStateForComment('t2_user', 'alice', 'UTC', 't1_a', (state) =>
+    const first = await mutateUserStateForComment('t2_user', 'alice', 't1_a', (state) =>
       applyComment(state, config(), 't1_a', '2026-07-15', '2026-07-15T12:00:00.000Z')
     );
-    const delayed = await mutateUserStateForComment('t2_user', 'alice', 'UTC', 't1_a', (state) =>
+    const delayed = await mutateUserStateForComment('t2_user', 'alice', 't1_a', (state) =>
       applyComment(state, config(), 't1_a', '2026-07-16', '2026-07-16T12:00:00.000Z')
     );
 
-    expect(first.awardedXp).toBe(2);
+    expect(first?.awardedXp).toBe(2);
     expect(delayed).toMatchObject({ awardedXp: 0, changed: false, duplicate: true });
     expect(storedUser().xp).toBe(2);
     expect(redisMock.scores.get('t2_user')).toBe(2);
@@ -117,15 +121,63 @@ describe('persistent comment reward deduplication', () => {
 
   it('awards XP once when the same comment is delivered concurrently', async () => {
     const reward = () =>
-      mutateUserStateForComment('t2_user', 'alice', 'UTC', 't1_a', (state) =>
+      mutateUserStateForComment('t2_user', 'alice', 't1_a', (state) =>
         applyComment(state, config(), 't1_a', '2026-07-15', '2026-07-15T12:00:00.000Z')
       );
 
     const results = await Promise.all([reward(), reward()]);
 
-    expect(results.reduce((total, result) => total + result.awardedXp, 0)).toBe(2);
-    expect(results.filter((result) => result.duplicate)).toHaveLength(1);
+    expect(results.reduce((total, result) => total + (result?.awardedXp ?? 0), 0)).toBe(2);
+    expect(results.filter((result) => result?.duplicate)).toHaveLength(1);
     expect(storedUser().xp).toBe(2);
     expect(redisMock.scores.get('t2_user')).toBe(2);
+  });
+
+  it('does not recreate a missing profile through a comment reward', async () => {
+    redisMock.reset();
+
+    const result = await mutateUserStateForComment('t2_user', 'alice', 't1_a', (state) =>
+      applyComment(state, config(), 't1_a', '2026-07-15', '2026-07-15T12:00:00.000Z')
+    );
+
+    expect(result).toBeNull();
+    expect(redisMock.values.has(USER_KEY)).toBe(false);
+    expect(redisMock.scores.has('t2_user')).toBe(false);
+  });
+
+  it('does not recreate a missing profile through an existing-user mutation', async () => {
+    redisMock.reset();
+
+    const result = await mutateExistingUserState('t2_user', 'alice', (state) =>
+      applyCheckIn(state, config(), '2026-07-15', '2026-07-15T12:00:00.000Z')
+    );
+
+    expect(result).toBeNull();
+    expect(redisMock.values.has(USER_KEY)).toBe(false);
+    expect(redisMock.scores.has('t2_user')).toBe(false);
+  });
+
+  it('persists an existing-user mutation normally', async () => {
+    const result = await mutateExistingUserState('t2_user', 'alice', (state) =>
+      applyCheckIn(state, config(), '2026-07-15', '2026-07-15T12:00:00.000Z')
+    );
+
+    expect(result?.awardedXp).toBe(3);
+    expect(storedUser().xp).toBe(3);
+    expect(redisMock.scores.get('t2_user')).toBe(3);
+  });
+
+  it('allows the enrollment mutation to create a missing profile', async () => {
+    redisMock.reset();
+
+    const result = await createOrMutateUserState('t2_user', 'alice', 'UTC', (state) => ({
+      state,
+      awardedXp: 0,
+      changed: true,
+    }));
+
+    expect(result.state.userId).toBe('t2_user');
+    expect(storedUser().username).toBe('alice');
+    expect(redisMock.scores.get('t2_user')).toBe(0);
   });
 });

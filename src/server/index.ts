@@ -36,11 +36,12 @@ import {
   validateConfig,
 } from './domain.js';
 import {
+  createOrMutateUserState,
   deleteUserData,
   getConfig,
   getLeaderboard,
   getUserState,
-  mutateUserState,
+  mutateExistingUserState,
   mutateUserStateForComment,
   rollbackCommentReward,
   saveConfig,
@@ -143,7 +144,7 @@ app.post('/api/join', async (_req, res) => {
     const existing = await getUserState(context.userId);
     if (!existing) {
       await reddit.subscribeToCurrentSubreddit();
-      const result = await mutateUserState(
+      const result = await createOrMutateUserState(
         context.userId,
         context.username,
         config.timezone,
@@ -172,12 +173,15 @@ app.post('/api/check-in', async (_req, res) => {
       return;
     }
     const beforeLevel = levelForXp(config.levels, before.xp);
-    const result = await mutateUserState(
+    const result = await mutateExistingUserState(
       context.userId,
       context.username,
-      config.timezone,
       (state) => applyCheckIn(state, config, dateKey(new Date(), config.timezone), new Date().toISOString())
     );
+    if (!result) {
+      res.status(403).json({ error: 'Join this community before earning XP.' } satisfies ApiError);
+      return;
+    }
     const afterLevel = levelForXp(config.levels, result.state.xp);
     const flairWarning = await syncFlair(config, result.state);
     const state = await buildState();
@@ -320,11 +324,14 @@ app.post('/internal/triggers/comment-create', async (req, res) => {
     const result = await mutateUserStateForComment(
       author.id,
       author.name,
-      config.timezone,
       comment.id,
       (state) =>
         applyComment(state, config, comment.id, dateKey(new Date(), config.timezone), new Date().toISOString())
     );
+    if (!result) {
+      res.json({} satisfies TriggerResponse);
+      return;
+    }
     if (result.awardedXp > 0) {
       const afterLevel = levelForXp(config.levels, result.state.xp);
       if (afterLevel.level !== beforeLevel.level) await syncFlair(config, result.state);

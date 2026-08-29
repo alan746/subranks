@@ -49,25 +49,25 @@ export async function getUserState(userId: string): Promise<UserState | null> {
   return value ? parseJson<UserState | null>(value, null) : null;
 }
 
-export async function mutateUserState(
+async function mutateStoredUserState(
   userId: string,
   username: string,
-  timezone: string,
-  mutation: (state: UserState) => MutationResult
-): Promise<MutationResult> {
+  mutation: (state: UserState) => MutationResult,
+  createState?: () => UserState
+): Promise<MutationResult | null> {
   const key = userKey(userId);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const transaction = await redis.watch(key);
     try {
-      const now = new Date();
-      const nowIso = now.toISOString();
-      const today = dateKey(now, timezone);
       const raw = await redis.get(key);
-      const existing = raw
-        ? parseJson(raw, createUserState(userId, username, today, nowIso))
-        : createUserState(userId, username, today, nowIso);
+      const stored = raw ? parseJson<UserState | null>(raw, null) : null;
+      const existing = stored ?? createState?.() ?? null;
+      if (!existing) {
+        await transaction.unwatch();
+        return null;
+      }
       const normalized = { ...existing, username };
       const result = mutation(normalized);
 
@@ -94,13 +94,34 @@ export async function mutateUserState(
   throw lastError instanceof Error ? lastError : new Error('Could not update player state.');
 }
 
-export async function mutateUserStateForComment(
+export async function createOrMutateUserState(
   userId: string,
   username: string,
   timezone: string,
+  mutation: (state: UserState) => MutationResult
+): Promise<MutationResult> {
+  const now = new Date();
+  const result = await mutateStoredUserState(userId, username, mutation, () =>
+    createUserState(userId, username, dateKey(now, timezone), now.toISOString())
+  );
+  if (!result) throw new Error('Could not create player state.');
+  return result;
+}
+
+export function mutateExistingUserState(
+  userId: string,
+  username: string,
+  mutation: (state: UserState) => MutationResult
+): Promise<MutationResult | null> {
+  return mutateStoredUserState(userId, username, mutation);
+}
+
+export async function mutateUserStateForComment(
+  userId: string,
+  username: string,
   commentId: string,
   mutation: (state: UserState) => MutationResult
-): Promise<CommentMutationResult> {
+): Promise<CommentMutationResult | null> {
   const key = userKey(userId);
   const rewardKey = commentRewardKey(commentId);
   let lastError: unknown;
@@ -108,16 +129,15 @@ export async function mutateUserStateForComment(
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const transaction = await redis.watch(key, rewardKey);
     try {
-      const now = new Date();
-      const nowIso = now.toISOString();
-      const today = dateKey(now, timezone);
       const [raw, existingReward] = await Promise.all([
         redis.get(key),
         redis.get(rewardKey),
       ]);
-      const existing = raw
-        ? parseJson(raw, createUserState(userId, username, today, nowIso))
-        : createUserState(userId, username, today, nowIso);
+      const existing = raw ? parseJson<UserState | null>(raw, null) : null;
+      if (!existing) {
+        await transaction.unwatch();
+        return null;
+      }
       const normalized = { ...existing, username };
 
       if (existingReward) {

@@ -1,6 +1,6 @@
 # SubRanks Privacy Notice
 
-Last updated: July 15, 2026
+Last updated: August 28, 2026
 
 SubRanks is a Reddit Devvit application. It processes only the information needed to operate community XP, ranks, streaks, and leaderboards within a subreddit installation.
 
@@ -25,7 +25,9 @@ SubRanks does not sell or share stored data with third parties. Leaderboard user
 
 ## Data deletion
 
-A signed-in player can select **Delete my SubRanks data** in the My Rank screen. This removes the player's stored profile and leaderboard entry from the current subreddit installation. Deleting data is irreversible.
+A signed-in player can select **Delete my SubRanks data** in the My Rank screen. This removes the player's stored profile, leaderboard entry, and indexed comment-reward records from the current subreddit installation. Deleting data is irreversible.
+
+Comment-reward records created before per-player reward indexing was introduced cannot be enumerated through the available storage interface. Those legacy records expire automatically within their original 90-day retention period and cannot recreate a deleted profile.
 
 ## Flair
 

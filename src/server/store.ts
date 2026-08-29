@@ -186,19 +186,39 @@ export async function mutateUserStateForComment(
 }
 
 export async function getLeaderboard(config: AppConfig, limit = 10): Promise<LeaderboardEntry[]> {
-  const members = await redis.zRange(LEADERBOARD_KEY, 0, Math.max(0, limit - 1), {
-    by: 'rank',
-    reverse: true,
-  });
-  if (members.length === 0) return [];
+  if (limit <= 0) return [];
 
-  const states = await redis.mGet(members.map((member) => userKey(member.member)));
-  return members.flatMap((member, index) => {
-    const state = parseJson<UserState | null>(states[index] ?? undefined, null);
-    if (!state) return [];
-    const level = levelForXp(config.levels, state.xp);
-    return [{ rank: index + 1, username: state.username, xp: state.xp, level: level.level, title: level.title }];
-  });
+  const entries: LeaderboardEntry[] = [];
+  const batchSize = Math.max(10, limit);
+  let offset = 0;
+
+  while (entries.length < limit) {
+    const members = await redis.zRange(LEADERBOARD_KEY, offset, offset + batchSize - 1, {
+      by: 'rank',
+      reverse: true,
+    });
+    if (members.length === 0) break;
+
+    const states = await redis.mGet(members.map((member) => userKey(member.member)));
+    for (const [index, member] of members.entries()) {
+      const state = parseJson<UserState | null>(states[index] ?? undefined, null);
+      if (!state) continue;
+      const level = levelForXp(config.levels, state.xp);
+      entries.push({
+        rank: entries.length + 1,
+        username: state.username,
+        xp: state.xp,
+        level: level.level,
+        title: level.title,
+      });
+      if (entries.length === limit) break;
+    }
+
+    offset += members.length;
+    if (members.length < batchSize) break;
+  }
+
+  return entries;
 }
 
 export async function getCommentReward(

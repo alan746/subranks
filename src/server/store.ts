@@ -13,9 +13,12 @@ const CONFIG_KEY = 'subranks:config';
 const LEADERBOARD_KEY = 'subranks:leaderboard';
 const USER_PREFIX = 'subranks:user:';
 const COMMENT_REWARD_PREFIX = 'subranks:comment-reward:';
+const COMMENT_REWARD_INDEX_PREFIX = 'subranks:comment-rewards-by-user:';
+const COMMENT_REWARD_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 const userKey = (userId: string) => `${USER_PREFIX}${userId}`;
 const commentRewardKey = (commentId: string) => `${COMMENT_REWARD_PREFIX}${commentId}`;
+const commentRewardIndexKey = (userId: string) => `${COMMENT_REWARD_INDEX_PREFIX}${userId}`;
 
 export type CommentMutationResult = MutationResult & {
   duplicate: boolean;
@@ -124,10 +127,11 @@ export async function mutateUserStateForComment(
 ): Promise<CommentMutationResult | null> {
   const key = userKey(userId);
   const rewardKey = commentRewardKey(commentId);
+  const rewardIndexKey = commentRewardIndexKey(userId);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const transaction = await redis.watch(key, rewardKey);
+    const transaction = await redis.watch(key, rewardKey, rewardIndexKey);
     try {
       const [raw, existingReward] = await Promise.all([
         redis.get(key),
@@ -158,7 +162,14 @@ export async function mutateUserStateForComment(
         rewardKey,
         JSON.stringify({ userId, username, awardedXp: result.awardedXp })
       );
-      await transaction.expire(rewardKey, 90 * 24 * 60 * 60);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      await transaction.expire(rewardKey, COMMENT_REWARD_TTL_SECONDS);
+      await transaction.zRemRangeByScore(rewardIndexKey, 0, nowSeconds);
+      await transaction.zAdd(rewardIndexKey, {
+        member: commentId,
+        score: nowSeconds + COMMENT_REWARD_TTL_SECONDS,
+      });
+      await transaction.expire(rewardIndexKey, COMMENT_REWARD_TTL_SECONDS);
       await transaction.exec();
       return { ...result, duplicate: false };
     } catch (error) {
@@ -209,7 +220,8 @@ export async function rollbackCommentReward(
     if (!initialReward) return null;
 
     const key = userKey(initialReward.userId);
-    const transaction = await redis.watch(key, rewardKey);
+    const rewardIndexKey = commentRewardIndexKey(initialReward.userId);
+    const transaction = await redis.watch(key, rewardKey, rewardIndexKey);
     try {
       const [rawState, rawReward] = await Promise.all([
         redis.get(key),
@@ -229,6 +241,7 @@ export async function rollbackCommentReward(
 
       if (!state) {
         await transaction.del(rewardKey);
+        await transaction.zRem(rewardIndexKey, [commentId]);
         await transaction.exec();
         return null;
       }
@@ -237,6 +250,7 @@ export async function rollbackCommentReward(
       await transaction.set(key, JSON.stringify(result.state));
       await transaction.zAdd(LEADERBOARD_KEY, { member: reward.userId, score: result.state.xp });
       await transaction.del(rewardKey);
+      await transaction.zRem(rewardIndexKey, [commentId]);
       await transaction.exec();
       return result.state;
     } catch (error) {
@@ -253,6 +267,31 @@ export async function rollbackCommentReward(
 }
 
 export async function deleteUserData(userId: string): Promise<void> {
-  await redis.del(userKey(userId));
-  await redis.zRem(LEADERBOARD_KEY, [userId]);
+  const key = userKey(userId);
+  const rewardIndexKey = commentRewardIndexKey(userId);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const transaction = await redis.watch(key, rewardIndexKey);
+    try {
+      const rewards = await redis.zRange(rewardIndexKey, 0, -1, { by: 'rank' });
+      await transaction.multi();
+      if (rewards.length > 0) {
+        await transaction.del(...rewards.map((reward) => commentRewardKey(reward.member)));
+      }
+      await transaction.del(key, rewardIndexKey);
+      await transaction.zRem(LEADERBOARD_KEY, [userId]);
+      await transaction.exec();
+      return;
+    } catch (error) {
+      lastError = error;
+      try {
+        await transaction.discard();
+      } catch {
+        // The transaction may already have been aborted by Redis.
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Could not delete player data.');
 }

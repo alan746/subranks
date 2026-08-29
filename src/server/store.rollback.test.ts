@@ -8,19 +8,27 @@ const redisMock = vi.hoisted(() => {
   const values = new Map<string, string>();
   const versions = new Map<string, number>();
   const scores = new Map<string, number>();
+  const zsets = new Map<string, Map<string, number>>();
+  const leaderboardKey = 'subranks:leaderboard';
 
   const bumpVersion = (key: string) => versions.set(key, (versions.get(key) ?? 0) + 1);
 
   return {
     values,
     scores,
+    zsets,
     reset() {
       values.clear();
       versions.clear();
       scores.clear();
+      zsets.clear();
     },
     seed(key: string, value: string) {
       values.set(key, value);
+      bumpVersion(key);
+    },
+    seedZSet(key: string, member: string, score: number) {
+      zsets.set(key, new Map([[member, score]]));
       bumpVersion(key);
     },
     async get(key: string) {
@@ -48,13 +56,35 @@ const redisMock = vi.hoisted(() => {
           operations.push(() => {
             for (const key of keys) {
               values.delete(key);
+              zsets.delete(key);
               bumpVersion(key);
             }
           });
           return this;
         },
-        async zAdd(_key: string, entry: { member: string; score: number }) {
-          operations.push(() => scores.set(entry.member, entry.score));
+        async zAdd(key: string, entry: { member: string; score: number }) {
+          operations.push(() => {
+            if (key === leaderboardKey) scores.set(entry.member, entry.score);
+            else {
+              const entries = zsets.get(key) ?? new Map<string, number>();
+              entries.set(entry.member, entry.score);
+              zsets.set(key, entries);
+            }
+            bumpVersion(key);
+          });
+          return this;
+        },
+        async zRem(key: string, members: string[]) {
+          operations.push(() => {
+            if (key === leaderboardKey) {
+              members.forEach((member) => scores.delete(member));
+            } else {
+              const entries = zsets.get(key);
+              members.forEach((member) => entries?.delete(member));
+              if (entries?.size === 0) zsets.delete(key);
+            }
+            bumpVersion(key);
+          });
           return this;
         },
         async exec() {
@@ -84,6 +114,7 @@ import { rollbackCommentReward } from './store.js';
 
 const USER_KEY = 'subranks:user:t2_user';
 const REWARD_KEY = 'subranks:comment-reward:t1_a';
+const REWARD_INDEX_KEY = 'subranks:comment-rewards-by-user:t2_user';
 
 function rewardRecord(): string {
   return JSON.stringify({ userId: 't2_user', username: 'alice', awardedXp: 2 });
@@ -105,30 +136,35 @@ describe('comment reward rollback', () => {
 
   it('removes a stale reward without recreating a deleted profile', async () => {
     redisMock.seed(REWARD_KEY, rewardRecord());
+    redisMock.seedZSet(REWARD_INDEX_KEY, 't1_a', 1);
 
     const result = await rollbackCommentReward('t1_a', '2026-07-15T13:00:00.000Z');
 
     expect(result).toBeNull();
     expect(redisMock.values.has(USER_KEY)).toBe(false);
     expect(redisMock.values.has(REWARD_KEY)).toBe(false);
+    expect(redisMock.zsets.has(REWARD_INDEX_KEY)).toBe(false);
     expect(redisMock.scores.has('t2_user')).toBe(false);
   });
 
   it('rolls back an enrolled player and removes the reward atomically', async () => {
     redisMock.seed(USER_KEY, JSON.stringify(rewardedUser()));
     redisMock.seed(REWARD_KEY, rewardRecord());
+    redisMock.seedZSet(REWARD_INDEX_KEY, 't1_a', 1);
 
     const result = await rollbackCommentReward('t1_a', '2026-07-15T13:00:00.000Z');
 
     expect(result?.xp).toBe(0);
     expect(result?.daily.commentIds).toEqual([]);
     expect(redisMock.values.has(REWARD_KEY)).toBe(false);
+    expect(redisMock.zsets.has(REWARD_INDEX_KEY)).toBe(false);
     expect(redisMock.scores.get('t2_user')).toBe(0);
   });
 
   it('treats repeated deletion delivery as a no-op', async () => {
     redisMock.seed(USER_KEY, JSON.stringify(rewardedUser()));
     redisMock.seed(REWARD_KEY, rewardRecord());
+    redisMock.seedZSet(REWARD_INDEX_KEY, 't1_a', 1);
 
     await rollbackCommentReward('t1_a', '2026-07-15T13:00:00.000Z');
     const repeated = await rollbackCommentReward('t1_a', '2026-07-15T13:01:00.000Z');

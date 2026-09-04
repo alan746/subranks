@@ -66,6 +66,10 @@ export type CheckInResponse = AppStateResponse & {
   flairWarning?: string;
 };
 
+export type DeleteDataResponse = AppStateResponse & {
+  flairWarning?: string;
+};
+
 export type SaveConfigRequest = Pick<
   AppConfig,
   | 'communityName'

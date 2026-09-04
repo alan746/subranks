@@ -16,6 +16,28 @@ export function rankFlairForUser(config: AppConfig, user: UserState): RankFlair 
   };
 }
 
-export function shouldRemoveSyncedFlair(config: AppConfig, user: UserState): boolean {
-  return config.flairSyncEnabled || Boolean(user.syncedFlairText);
+export function shouldRemoveSyncedFlair(
+  config: AppConfig,
+  user: UserState,
+  currentFlairText: string | undefined
+): boolean {
+  const ownedFlairText = user.syncedFlairText
+    ?? (config.flairSyncEnabled ? rankFlairForUser(config, user).text : undefined);
+  return Boolean(ownedFlairText && currentFlairText === ownedFlairText);
+}
+
+export async function persistSyncedFlairOrCompensate(
+  recordOwnership: () => Promise<boolean>,
+  removeFlair: () => Promise<void>
+): Promise<boolean> {
+  let recorded: boolean;
+  try {
+    recorded = await recordOwnership();
+  } catch (error) {
+    await removeFlair();
+    throw error;
+  }
+  if (recorded) return true;
+  await removeFlair();
+  return false;
 }

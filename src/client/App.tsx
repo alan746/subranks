@@ -4,6 +4,7 @@ import type {
   AppConfig,
   AppStateResponse,
   CheckInResponse,
+  DeleteDataResponse,
   RankLevel,
   SaveConfigRequest,
 } from '../shared/types.js';
@@ -438,10 +439,13 @@ export function App() {
   };
 
   const deleteData = async () => {
-    if (!window.confirm('Delete your SubRanks enrollment, XP, streak and leaderboard entry? This cannot be undone and will not leave the subreddit.')) return;
+    if (!window.confirm('Delete your SubRanks enrollment, XP, streak, leaderboard entry and matching synchronized flair? This cannot be undone and will not leave the subreddit.')) return;
     try {
-      setState(await api<AppStateResponse>('/api/me', { method: 'DELETE' }));
-      setNotice({ kind: 'success', text: 'Your SubRanks data has been deleted.' });
+      const response = await api<DeleteDataResponse>('/api/me', { method: 'DELETE' });
+      setState(response);
+      setNotice(response.flairWarning
+        ? { kind: 'error', text: response.flairWarning }
+        : { kind: 'success', text: 'Your SubRanks data has been deleted.' });
     } catch (reason) {
       setNotice({ kind: 'error', text: reason instanceof Error ? reason.message : 'Could not delete data.' });
     }

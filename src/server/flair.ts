@@ -7,6 +7,13 @@ export type RankFlair = {
   textColor: 'light' | 'dark';
 };
 
+export function includeFlairWarning<T extends object>(
+  response: T,
+  flairWarning?: string
+): T & { flairWarning?: string } {
+  return { ...response, ...(flairWarning ? { flairWarning } : {}) };
+}
+
 export function rankFlairForUser(config: AppConfig, user: UserState): RankFlair {
   const level = levelForXp(config.levels, user.xp);
   return {

@@ -57,18 +57,16 @@ export type AppStateResponse = {
   checkInXpToday: number;
   commentsRewardedToday: number;
   leaderboard: LeaderboardEntry[];
+  flairWarning?: string;
 };
 
 export type CheckInResponse = AppStateResponse & {
   awardedXp: number;
   alreadyCheckedIn: boolean;
   leveledUp: boolean;
-  flairWarning?: string;
 };
 
-export type DeleteDataResponse = AppStateResponse & {
-  flairWarning?: string;
-};
+export type DeleteDataResponse = AppStateResponse;
 
 export type SaveConfigRequest = Pick<
   AppConfig,

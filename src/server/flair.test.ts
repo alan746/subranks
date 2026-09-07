@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppConfig, UserState } from '../shared/types.js';
 import { createUserState, DEFAULT_CONFIG } from './domain.js';
 import {
+  includeFlairWarning,
   persistSyncedFlairOrCompensate,
   rankFlairForUser,
   shouldRemoveSyncedFlair,
@@ -25,6 +26,16 @@ function user(xp: number, syncedFlairText?: string): UserState {
 }
 
 describe('Reddit flair ownership', () => {
+  it('includes synchronization warnings only when present', () => {
+    const state = { enrolled: true };
+
+    expect(includeFlairWarning(state, 'Flair could not be updated.')).toEqual({
+      enrolled: true,
+      flairWarning: 'Flair could not be updated.',
+    });
+    expect(includeFlairWarning(state)).toEqual({ enrolled: true });
+  });
+
   it('builds the flair from the current XP level', () => {
     expect(rankFlairForUser(config(), user(60))).toEqual({
       text: 'Contributor · Lv.3',

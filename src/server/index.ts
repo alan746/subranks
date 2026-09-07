@@ -35,6 +35,7 @@ import {
   validateConfig,
 } from './domain.js';
 import {
+  includeFlairWarning,
   persistSyncedFlairOrCompensate,
   rankFlairForUser,
   shouldRemoveSyncedFlair,
@@ -92,7 +93,7 @@ async function syncFlair(
     return undefined;
   } catch (error) {
     console.error('Could not sync user flair:', error);
-    return 'Your XP was saved, but Reddit flair could not be updated. Check the app’s moderator permissions and subreddit flair settings.';
+    return 'Your SubRanks progress was saved, but Reddit flair could not be updated. Check the app’s moderator permissions and subreddit flair settings.';
   }
 }
 
@@ -151,8 +152,10 @@ async function buildState(): Promise<AppStateResponse> {
 app.get('/api/state', async (_req, res) => {
   try {
     const state = await buildState();
-    if (state.user && state.config.flairSyncEnabled) await syncFlair(state.config, state.user);
-    res.json(state);
+    const flairWarning = state.user && state.config.flairSyncEnabled
+      ? await syncFlair(state.config, state.user)
+      : undefined;
+    res.json(includeFlairWarning(state, flairWarning));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: errorMessage(error) } satisfies ApiError);
@@ -168,6 +171,7 @@ app.post('/api/join', async (_req, res) => {
   try {
     const config = await getConfig();
     const existing = await getUserState(context.userId);
+    let flairWarning: string | undefined;
     if (!existing) {
       await reddit.subscribeToCurrentSubreddit();
       const result = await createOrMutateUserState(
@@ -176,9 +180,9 @@ app.post('/api/join', async (_req, res) => {
         config.timezone,
         (state) => ({ state, awardedXp: 0, changed: true })
       );
-      await syncFlair(config, result.state);
+      flairWarning = await syncFlair(config, result.state);
     }
-    res.json(await buildState());
+    res.json(includeFlairWarning(await buildState(), flairWarning));
   } catch (error) {
     console.error('Could not join SubRanks:', error);
     res.status(500).json({ error: 'Could not join this community. Check the app permission and try again.' } satisfies ApiError);
@@ -277,7 +281,7 @@ app.delete('/api/me', async (_req, res) => {
     await deleteUserData(context.userId);
     const flairWarning = user ? await removeOwnedFlair(config, user) : undefined;
     const state = await buildState();
-    res.json({ ...state, ...(flairWarning ? { flairWarning } : {}) });
+    res.json(includeFlairWarning(state, flairWarning));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: errorMessage(error) } satisfies ApiError);

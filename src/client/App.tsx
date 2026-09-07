@@ -392,8 +392,11 @@ export function App() {
   const load = async () => {
     setLoading(true);
     setError('');
+    setNotice(null);
     try {
-      setState(await api<AppStateResponse>('/api/state'));
+      const response = await api<AppStateResponse>('/api/state');
+      setState(response);
+      if (response.flairWarning) setNotice({ kind: 'error', text: response.flairWarning });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not load SubRanks.');
     } finally {
@@ -408,7 +411,9 @@ export function App() {
     try {
       const response = await api<AppStateResponse>('/api/join', { method: 'POST' });
       setState(response);
-      setNotice({ kind: 'success', text: `Welcome to the ranks — ${response.currentLevel?.title ?? 'first rank'} unlocked.` });
+      setNotice(response.flairWarning
+        ? { kind: 'error', text: response.flairWarning }
+        : { kind: 'success', text: `Welcome to the ranks — ${response.currentLevel?.title ?? 'first rank'} unlocked.` });
     } catch (reason) {
       setNotice({ kind: 'error', text: reason instanceof Error ? reason.message : 'Could not join this community.' });
     } finally {

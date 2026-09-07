@@ -33,6 +33,7 @@ SubRanks is designed for communities whose identity comes from their own languag
 - If a rewarded comment is deleted within 90 days, its XP is rolled back and the stored comment-reward record is deleted.
 - Reddit does not expose a per-user upvote trigger, so SubRanks does not award XP for Reddit votes.
 - Flair synchronization is off by default. Enabling it overwrites a player's user flair in this subreddit whenever the player earns XP or opens SubRanks.
+- If Reddit flair synchronization fails while opening, joining, or checking in, stored progress remains intact and SubRanks displays a warning.
 - The daily boundary uses the moderator-configured timezone. `UTC` is the default.
 
 ## Technology

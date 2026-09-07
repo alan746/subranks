@@ -134,6 +134,7 @@ import {
   mutateExistingUserState,
   mutateUserStateForComment,
   deleteUserData,
+  recordSyncedFlairText,
 } from './store.js';
 
 const USER_KEY = 'subranks:user:t2_user';
@@ -239,6 +240,15 @@ describe('user state mutations and persistent comment reward deduplication', () 
     expect(result.state.userId).toBe('t2_user');
     expect(storedUser().username).toBe('alice');
     expect(redisMock.scores.get('t2_user')).toBe(0);
+  });
+
+  it('records synchronized flair only on an existing profile', async () => {
+    expect(await recordSyncedFlairText('t2_user', 'Newcomer · Lv.1')).toBe(true);
+    expect(storedUser().syncedFlairText).toBe('Newcomer · Lv.1');
+
+    redisMock.reset();
+    expect(await recordSyncedFlairText('t2_user', 'Newcomer · Lv.1')).toBe(false);
+    expect(redisMock.values.has(USER_KEY)).toBe(false);
   });
 
   it('deletes the profile, leaderboard entry, and indexed rewards together', async () => {

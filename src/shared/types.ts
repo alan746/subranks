@@ -31,6 +31,7 @@ export type UserState = {
   longestStreak: number;
   lastCheckInDate: string | null;
   daily: DailyActivity;
+  syncedFlairText?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -62,6 +63,10 @@ export type CheckInResponse = AppStateResponse & {
   awardedXp: number;
   alreadyCheckedIn: boolean;
   leveledUp: boolean;
+  flairWarning?: string;
+};
+
+export type DeleteDataResponse = AppStateResponse & {
   flairWarning?: string;
 };
 

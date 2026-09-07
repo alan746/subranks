@@ -25,13 +25,13 @@ SubRanks does not sell or share stored data with third parties. Leaderboard user
 
 ## Data deletion
 
-A signed-in player can select **Delete my SubRanks data** in the My Rank screen. This removes the player's stored profile, leaderboard entry, and indexed comment-reward records from the current subreddit installation. Deleting data is irreversible.
+A signed-in player can select **Delete my SubRanks data** in the My Rank screen. This removes the player's stored profile, leaderboard entry, indexed comment-reward records, and matching synchronized Reddit flair from the current subreddit installation. Unrelated flair is left unchanged. Deleting data is irreversible.
 
 Comment-reward records created before per-player reward indexing was introduced cannot be enumerated through the available storage interface. Those legacy records expire automatically within their original 90-day retention period and cannot recreate a deleted profile.
 
 ## Flair
 
-If a moderator enables flair synchronization, SubRanks sets the participating user's flair in that subreddit to the unlocked rank. This can overwrite an existing subreddit flair. Moderators can leave this feature disabled.
+If a moderator enables flair synchronization, SubRanks sets the participating user's flair in that subreddit to the unlocked rank and records the synchronized text. This can overwrite an existing subreddit flair. Moderators can leave this feature disabled. Profile deletion removes the flair only while its current text still matches the recorded SubRanks value. If Reddit rejects flair removal, stored data is still deleted and the player receives a warning to clear the flair through subreddit settings.
 
 ## Contact
 

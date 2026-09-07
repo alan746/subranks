@@ -12,7 +12,7 @@ SubRanks is designed for communities whose identity comes from their own languag
 - Build current and longest check-in streaks.
 - See their current title, progress to the next title, and every community rank.
 - View a top-ten all-time leaderboard.
-- Delete their stored SubRanks profile and leaderboard entry.
+- Delete their stored SubRanks profile, leaderboard entry, comment reward records, and matching synchronized flair.
 
 ## What moderators can do
 
@@ -105,7 +105,7 @@ When the CLI prints `Playtest ready`, open its Reddit URL. From the subreddit mo
 9. Confirm the leaderboard contains the test user once, with the correct XP.
 10. Enable user flair, earn XP again, and confirm the title appears beside the username.
 11. Confirm a non-moderator cannot call the configuration endpoint and cannot see the Manage tab.
-12. Select **Delete my SubRanks data** and confirm XP, streak, leaderboard entry, and enrollment are removed. This does not unsubscribe the Reddit account from the subreddit.
+12. Select **Delete my SubRanks data** and confirm XP, streak, leaderboard entry, enrollment, and the matching synchronized flair are removed. Unrelated flair must remain unchanged. This does not unsubscribe the Reddit account from the subreddit.
 13. Test the post on narrow mobile width and in Reddit light and dark themes.
 
 ## Upload and publish

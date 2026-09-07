@@ -32,9 +32,13 @@ import {
   nextLevelForXp,
   normalizeDaily,
   progressForXp,
-  textColorForBackground,
   validateConfig,
 } from './domain.js';
+import {
+  persistSyncedFlairOrCompensate,
+  rankFlairForUser,
+  shouldRemoveSyncedFlair,
+} from './flair.js';
 import {
   createOrMutateUserState,
   deleteUserData,
@@ -43,6 +47,7 @@ import {
   getUserState,
   mutateExistingUserState,
   mutateUserStateForComment,
+  recordSyncedFlairText,
   rollbackCommentReward,
   saveConfig,
 } from './store.js';
@@ -71,20 +76,41 @@ async function syncFlair(
   config: AppConfig,
   user: UserState
 ): Promise<string | undefined> {
-  if (!config.flairSyncEnabled || !context.subredditName) return undefined;
-  const level = levelForXp(config.levels, user.xp);
+  const subredditName = context.subredditName;
+  if (!config.flairSyncEnabled || !subredditName) return undefined;
+  const flair = rankFlairForUser(config, user);
   try {
     await reddit.setUserFlair({
-      subredditName: context.subredditName,
+      subredditName,
       username: user.username,
-      text: `${level.title} · Lv.${level.level}`,
-      backgroundColor: level.color,
-      textColor: textColorForBackground(level.color),
+      ...flair,
     });
+    await persistSyncedFlairOrCompensate(
+      () => recordSyncedFlairText(user.userId, flair.text),
+      () => reddit.removeUserFlair(subredditName, user.username)
+    );
     return undefined;
   } catch (error) {
     console.error('Could not sync user flair:', error);
     return 'Your XP was saved, but Reddit flair could not be updated. Check the app’s moderator permissions and subreddit flair settings.';
+  }
+}
+
+async function removeOwnedFlair(
+  config: AppConfig,
+  user: UserState
+): Promise<string | undefined> {
+  const subredditName = context.subredditName;
+  if (!subredditName) return undefined;
+  try {
+    const redditUser = await reddit.getUserByUsername(user.username);
+    const currentFlair = await redditUser?.getUserFlairBySubreddit(subredditName);
+    if (!shouldRemoveSyncedFlair(config, user, currentFlair?.flairText)) return undefined;
+    await reddit.removeUserFlair(subredditName, user.username);
+    return undefined;
+  } catch (error) {
+    console.error('Could not remove synchronized user flair:', error);
+    return 'Your SubRanks data was deleted, but its Reddit flair could not be removed. Clear it from the subreddit flair settings.';
   }
 }
 
@@ -244,8 +270,14 @@ app.delete('/api/me', async (_req, res) => {
     return;
   }
   try {
+    const [config, user] = await Promise.all([
+      getConfig(),
+      getUserState(context.userId),
+    ]);
     await deleteUserData(context.userId);
-    res.json(await buildState());
+    const flairWarning = user ? await removeOwnedFlair(config, user) : undefined;
+    const state = await buildState();
+    res.json({ ...state, ...(flairWarning ? { flairWarning } : {}) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: errorMessage(error) } satisfies ApiError);

@@ -9,6 +9,7 @@ import {
   dateKey,
   levelForXp,
   nextLevelForXp,
+  normalizeDaily,
   progressForXp,
   removeCommentReward,
   validateConfig,
@@ -35,6 +36,40 @@ describe('daily date handling', () => {
 });
 
 describe('check-ins', () => {
+  it('expires a missed streak before checking in while preserving progress', () => {
+    const stored = {
+      ...createUserState('t2_user', 'alice', '2026-07-15', '2026-07-15T12:00:00.000Z'),
+      xp: 50, streak: 4, longestStreak: 7, lastCheckInDate: '2026-07-15',
+    };
+    const current = normalizeDaily(stored, '2026-07-17');
+    expect(current).toMatchObject({ streak: 0, longestStreak: 7, xp: 50, lastCheckInDate: '2026-07-15' });
+    expect(stored.streak).toBe(4);
+    const checkedIn = applyCheckIn(current, config(), '2026-07-17', '2026-07-17T12:00:00.000Z');
+    expect(checkedIn.state.streak).toBe(1);
+    expect(checkedIn.awardedXp).toBe(3);
+  });
+
+  it('keeps today and yesterday streaks active across a month boundary', () => {
+    const stored = {
+      ...createUserState('t2_user', 'alice', '2026-07-31', '2026-07-31T12:00:00.000Z'),
+      streak: 4, lastCheckInDate: '2026-07-31',
+    };
+    expect(normalizeDaily(stored, '2026-07-31').streak).toBe(4);
+    expect(normalizeDaily(stored, '2026-08-01').streak).toBe(4);
+    expect(normalizeDaily(stored, '2026-08-02').streak).toBe(0);
+  });
+
+  it('expires stale streaks even when comment activity already updated the daily date', () => {
+    const stored = {
+      ...createUserState('t2_user', 'alice', '2026-07-17', '2026-07-17T12:00:00.000Z'),
+      streak: 4, lastCheckInDate: '2026-07-15',
+      daily: { date: '2026-07-17', checkedIn: false, commentIds: ['t1_a'] },
+    };
+    const current = normalizeDaily(stored, '2026-07-17');
+    expect(current.streak).toBe(0);
+    expect(current.daily).toEqual(stored.daily);
+  });
+
   it('awards reduced XP on day one and only once', () => {
     const initial = createUserState('t2_user', 'alice', '2026-07-15', '2026-07-15T12:00:00.000Z');
     const first = applyCheckIn(initial, config(), '2026-07-15', '2026-07-15T12:00:00.000Z');

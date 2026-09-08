@@ -77,10 +77,16 @@ export function createUserState(userId: string, username: string, today: string,
 }
 
 export function normalizeDaily(state: UserState, today: string): UserState {
-  if (state.daily.date === today) return state;
+  const streak = !state.lastCheckInDate || state.lastCheckInDate < previousDateKey(today)
+    ? 0
+    : state.streak;
+  if (state.daily.date === today && streak === state.streak) return state;
   return {
     ...state,
-    daily: { date: today, checkedIn: false, commentIds: [] },
+    streak,
+    daily: state.daily.date === today
+      ? state.daily
+      : { date: today, checkedIn: false, commentIds: [] },
   };
 }
 

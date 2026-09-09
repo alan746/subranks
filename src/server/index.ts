@@ -18,7 +18,6 @@ import type {
   AppConfig,
   AppStateResponse,
   CheckInResponse,
-  SaveConfigRequest,
   UserState,
 } from '../shared/types.js';
 import {
@@ -32,8 +31,8 @@ import {
   nextLevelForXp,
   normalizeDaily,
   progressForXp,
-  validateConfig,
 } from './domain.js';
+import { parseConfigInput } from './config-input.js';
 import {
   includeFlairWarning,
   persistSyncedFlairOrCompensate,
@@ -235,32 +234,14 @@ app.put('/api/admin/config', async (req, res) => {
     return;
   }
 
-  const input = req.body as SaveConfigRequest;
-  const candidate: Omit<AppConfig, 'updatedAt'> = {
-    communityName: String(input.communityName ?? '').trim(),
-    checkInXp: Number(input.checkInXp),
-    commentXp: Number(input.commentXp),
-    dailyCommentLimit: Number(input.dailyCommentLimit),
-    flairSyncEnabled: Boolean(input.flairSyncEnabled),
-    timezone: String(input.timezone ?? '').trim(),
-    levels: Array.isArray(input.levels)
-      ? input.levels.map((level, index) => ({
-          level: index + 1,
-          title: String(level.title ?? '').trim(),
-          requiredXp: Number(level.requiredXp),
-          description: String(level.description ?? '').trim(),
-          color: String(level.color ?? ''),
-        }))
-      : [],
-  };
-  const errors = validateConfig(candidate);
-  if (errors.length > 0) {
-    res.status(400).json({ error: errors.join(' ') } satisfies ApiError);
+  const parsed = parseConfigInput(req.body);
+  if (parsed.error !== undefined) {
+    res.status(400).json({ error: parsed.error } satisfies ApiError);
     return;
   }
 
   try {
-    await saveConfig({ ...candidate, updatedAt: new Date().toISOString() });
+    await saveConfig({ ...parsed.config, updatedAt: new Date().toISOString() });
     res.json(await buildState());
   } catch (error) {
     console.error(error);
